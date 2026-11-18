@@ -1,4 +1,3 @@
-// Procedural Cherry-MX Tactile Mechanical Keycap Audio Synth (Zero MP3!)
 class KeySwitchAudio {
   constructor() {
     this.ctx = null;
@@ -12,12 +11,12 @@ class KeySwitchAudio {
 
       const osc = this.ctx.createOscillator();
       osc.type = 'triangle';
-      osc.frequency.setValueAtTime(accent ? 1350 : 980, t);
-      osc.frequency.exponentialRampToValueAtTime(160, t + 0.032);
+      osc.frequency.setValueAtTime(accent ? 1380 : 980, t);
+      osc.frequency.exponentialRampToValueAtTime(150, t + 0.032);
 
       const g = this.ctx.createGain();
-      g.gain.setValueAtTime(0.22, t);
-      g.gain.exponentialRampToValueAtTime(0.001, t + 0.035);
+      g.gain.setValueAtTime(0.24, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.036);
 
       osc.connect(g).connect(this.ctx.destination);
       osc.start(t);
@@ -30,12 +29,15 @@ class KeySwitchAudio {
 }
 
 const keyAudio = new KeySwitchAudio();
-const DEFAULT_IDS = new Set([
-  'mute', 'vol_down', 'vol_up', 'play_pause', 'next_track', 'screenshot',
-  'boss_key', 'open_term', 'open_drops', 'task_mgr', 'github', 'lock_pc',
+const BUILTIN_IDS = new Set([
+  'mute', 'vol_down', 'vol_up', 'play_pause', 'next_track',
+  'screenshot', 'snipping', 'pull_clip', 'boss_key', 'open_term',
+  'open_ws', 'calc', 'sound_cfg', 'task_mgr', 'lock_pc',
 ]);
 
 let macros = [];
+let audioState = { vol: 50, muted: false };
+let userDraggingFader = false;
 let armedId = null;
 let armedTimeout = null;
 let toastTimer = null;
@@ -45,7 +47,7 @@ function showToast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
 function drawSparkline(svgId, values, strokeHex, fillHex) {
@@ -63,19 +65,69 @@ function drawSparkline(svgId, values, strokeHex, fillHex) {
   `;
 }
 
+function updateAudioUI(audio) {
+  if (!audio || typeof audio.vol !== 'number') return;
+  audioState = audio;
+  const pill = document.getElementById('pill-vol');
+  pill.textContent = audio.muted ? '🔇 已静音' : `🔊 ${audio.vol}%`;
+  pill.style.color = audio.muted ? '#f87171' : '#38bdf8';
+
+  const muteBtn = document.getElementById('fader-mute-btn');
+  muteBtn.textContent = audio.muted ? '🔇' : '🔊';
+  muteBtn.classList.toggle('is-muted', Boolean(audio.muted));
+
+  document.getElementById('fader-val-label').textContent = audio.muted
+    ? `已静音 (${audio.vol}%)`
+    : `${audio.vol}%`;
+
+  if (!userDraggingFader) {
+    document.getElementById('vol-fader').value = String(audio.vol);
+  }
+
+  // Update dynamic sub-labels on audio keycaps without rebuilding DOM if already rendered
+  const muteCard = document.querySelector('[data-mid="mute"]');
+  if (muteCard) {
+    muteCard.classList.toggle('muted-state', Boolean(audio.muted));
+    const sub = muteCard.querySelector('.key-sub');
+    if (sub && armedId !== 'mute') sub.textContent = audio.muted ? '当前：已静音' : `当前音量 ${audio.vol}%`;
+  }
+}
+
+function openScreenshotModal(url, fileName, w, h) {
+  const modal = document.getElementById('shot-modal');
+  document.getElementById('shot-title').textContent = `📸 电脑实时全屏截图 (${w || ''}×${h || ''})`;
+  document.getElementById('shot-img').src = `${url}?t=${Date.now()}`;
+  const dl = document.getElementById('shot-dl');
+  dl.href = url;
+  dl.download = fileName || 'screenshot.png';
+  modal.classList.remove('hidden');
+}
+
+function openClipboardModal(text) {
+  const modal = document.getElementById('clip-modal');
+  document.getElementById('clip-modal-text').value = text || '';
+  document.getElementById('clip-box').value = text || '';
+  modal.classList.remove('hidden');
+}
+
 function renderMacros() {
   const grid = document.getElementById('keycap-grid');
   grid.innerHTML = macros
     .map((m) => {
-      const customDel = !DEFAULT_IDS.has(m.id)
+      const customDel = !BUILTIN_IDS.has(m.id)
         ? `<button class="key-del" data-del="${m.id}" title="删除此自定义按钮">✕</button>`
         : '';
+      const isMutedCard = m.id === 'mute' && audioState.muted;
+      let subText = m.sub || '';
+      if (m.id === 'mute') subText = audioState.muted ? '当前：已静音' : `当前音量 ${audioState.vol}%`;
+      if (armedId === m.id) subText = '⚠️ 再点一次确认';
+
       return `
-        <div class="keycap ${armedId === m.id ? 'armed' : ''}" style="--glow:${m.color || '#38bdf8'}" data-mid="${m.id}">
+        <div class="keycap ${armedId === m.id ? 'armed' : ''} ${isMutedCard ? 'muted-state' : ''}" style="--glow:${m.color || '#38bdf8'}" data-mid="${m.id}">
           ${customDel}
           <div class="key-icon">${m.icon}</div>
           <div class="key-label">${m.label}</div>
-          <div class="key-sub">${armedId === m.id ? '⚠️ 再点一次确认' : (m.sub || '')}</div>
+          <div class="key-sub">${subText}</div>
         </div>
       `;
     })
@@ -110,14 +162,14 @@ function renderMacros() {
           armedId = null;
           renderMacros();
         }, 3000);
-        showToast('🔒 防误触保护：3 秒内再点一次确认执行！');
+        showToast('🔒 防误触保护：3 秒内再点一次确认锁屏！');
         return;
       }
 
       armedId = null;
       keyAudio.click(true);
       card.classList.add('pressing');
-      setTimeout(() => card.classList.remove('pressing'), 140);
+      setTimeout(() => card.classList.remove('pressing'), 150);
 
       const res = await fetch('/api/trigger', {
         method: 'POST',
@@ -127,7 +179,10 @@ function renderMacros() {
       const data = await res.json();
       if (data.ok) {
         showToast(data.message || `已执行：${m.label}`);
+        if (data.audio) updateAudioUI(data.audio);
         if (data.drops) renderDrops(data.drops);
+        if (data.fileUrl) openScreenshotModal(data.fileUrl, data.fileName, data.w, data.h);
+        if (data.clipText !== undefined) openClipboardModal(data.clipText);
       } else {
         showToast(`❌ ${data.error || '执行失败'}`);
       }
@@ -138,6 +193,7 @@ function renderMacros() {
 
 function renderTelemetry(t) {
   if (!t) return;
+  if (t.audio) updateAudioUI(t.audio);
   document.getElementById('host-sub').textContent = `${t.hostname} · LAN ${t.lanIp} · 运行 ${t.uptimeHrs}h`;
   document.getElementById('pill-cpu').textContent = `CPU ${t.cpuPct}%`;
   document.getElementById('pill-ram').textContent = `RAM ${t.ramPct}%`;
@@ -227,7 +283,6 @@ async function uploadFiles(fileList) {
 }
 
 function setupTabsAndActions(boot) {
-  // Tabs
   document.querySelectorAll('.tab-btn').forEach((btn) => {
     btn.onclick = () => {
       keyAudio.click(false);
@@ -238,7 +293,6 @@ function setupTabsAndActions(boot) {
     };
   });
 
-  // Hide QR card on small mobile screens if opened via ?deck=1 so keys get full focus
   if (!boot.isLocalhost && window.innerWidth < 720) {
     document.getElementById('qr-card').classList.add('hidden');
   } else {
@@ -246,6 +300,85 @@ function setupTabsAndActions(boot) {
     document.getElementById('qr-svg-box').innerHTML = boot.qrSvg;
     document.getElementById('pair-url-text').textContent = boot.pairUrl;
   }
+
+  // Hardware Volume Fader Slider & Mute Button!
+  const fader = document.getElementById('vol-fader');
+  let faderThrottle = 0;
+  fader.addEventListener('pointerdown', () => { userDraggingFader = true; });
+  window.addEventListener('pointerup', () => { userDraggingFader = false; });
+  fader.addEventListener('input', () => {
+    const vol = Number(fader.value);
+    document.getElementById('fader-val-label').textContent = `${vol}%`;
+    const now = performance.now();
+    if (now - faderThrottle > 45) {
+      faderThrottle = now;
+      fetch('/api/audio', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ vol }),
+      });
+    }
+  });
+  fader.addEventListener('change', async () => {
+    userDraggingFader = false;
+    const res = await fetch('/api/audio', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vol: Number(fader.value) }),
+    });
+    const data = await res.json();
+    if (data.audio) updateAudioUI(data.audio);
+  });
+
+  document.getElementById('fader-mute-btn').onclick = async () => {
+    keyAudio.click(true);
+    const res = await fetch('/api/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'mute' }),
+    });
+    const data = await res.json();
+    if (data.audio) updateAudioUI(data.audio);
+    if (data.message) showToast(data.message);
+  };
+
+  // Screenshot & Clipboard Modals
+  document.getElementById('shot-close').onclick = () =>
+    document.getElementById('shot-modal').classList.add('hidden');
+  document.getElementById('shot-open-folder').onclick = async () => {
+    await fetch('/api/macros', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: '_tmp_drops', icon: '📂', label: '快传目录', actionType: 'open_app', value: 'explorer_drops' }),
+    });
+    await fetch('/api/trigger', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: '_tmp_drops' }),
+    });
+    await fetch('/api/macros/_tmp_drops', { method: 'DELETE' });
+    showToast('📂 已在电脑打开 drops 截图目录！');
+  };
+
+  document.getElementById('clip-modal-close').onclick = () =>
+    document.getElementById('clip-modal').classList.add('hidden');
+  document.getElementById('clip-modal-copy').onclick = async () => {
+    const txt = document.getElementById('clip-modal-text').value;
+    await navigator.clipboard.writeText(txt);
+    keyAudio.click(true);
+    showToast('📋 已复制到当前设备剪贴板！');
+  };
+  document.getElementById('clip-modal-push').onclick = async () => {
+    const text = document.getElementById('clip-modal-text').value;
+    await fetch('/api/clipboard', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    document.getElementById('clip-modal').classList.add('hidden');
+    keyAudio.click(true);
+    showToast('📤 已写回电脑剪贴板！');
+  };
 
   document.getElementById('btn-copy-url').onclick = async () => {
     await navigator.clipboard.writeText(boot.pairUrl);
@@ -258,11 +391,10 @@ function setupTabsAndActions(boot) {
     if (data.ok) {
       macros = data.macros;
       renderMacros();
-      showToast('🔄 已恢复 12 键出厂布局');
+      showToast('🔄 已重置为 15 键标准布局');
     }
   };
 
-  // Clipboard Beam
   document.getElementById('btn-push-clip').onclick = async () => {
     const text = document.getElementById('clip-box').value;
     await fetch('/api/clipboard', {
@@ -279,10 +411,9 @@ function setupTabsAndActions(boot) {
     const data = await res.json();
     document.getElementById('clip-box').value = data.text || '';
     keyAudio.click(false);
-    showToast('📥 已提取电脑剪贴板内容！');
+    showToast(data.text ? '📥 已提取电脑剪贴板内容！' : '📥 当前电脑剪贴板为空');
   };
 
-  // Grab PC Screen from AirDrop tab
   document.getElementById('btn-grab-screen').onclick = async () => {
     keyAudio.click(true);
     showToast('📸 正在截取电脑全屏...');
@@ -293,10 +424,9 @@ function setupTabsAndActions(boot) {
     });
     const data = await res.json();
     if (data.drops) renderDrops(data.drops);
-    showToast('📸 电脑屏幕截图已生成！点击下方即可保存或预览');
+    if (data.fileUrl) openScreenshotModal(data.fileUrl, data.fileName, data.w, data.h);
   };
 
-  // File Picker & Drag-Drop
   const picker = document.getElementById('file-picker');
   picker.onchange = () => uploadFiles(picker.files);
   const dz = document.getElementById('drop-zone');
@@ -306,7 +436,6 @@ function setupTabsAndActions(boot) {
     uploadFiles(e.dataTransfer.files);
   };
 
-  // Custom Macro Modal
   const modal = document.getElementById('macro-modal');
   document.getElementById('btn-add-macro').onclick = () => modal.classList.remove('hidden');
   document.getElementById('m-cancel').onclick = () => modal.classList.add('hidden');
@@ -430,7 +559,6 @@ function setupTabsAndActions(boot) {
     };
   });
 
-  // Request screen WakeLock on mobile so desk companion screen never dims!
   if ('wakeLock' in navigator) {
     navigator.wakeLock.request('screen').catch(() => {});
   }
@@ -460,6 +588,7 @@ async function init() {
   document.getElementById('cockpit').classList.remove('hidden');
   macros = boot.macros || [];
   const logs = boot.logs || [];
+  if (boot.telemetry?.audio) audioState = boot.telemetry.audio;
 
   renderMacros();
   renderTelemetry(boot.telemetry);
@@ -467,9 +596,9 @@ async function init() {
   renderLogs(logs);
   setupTabsAndActions(boot);
 
-  // Connect real-time SSE telemetry & event stream
   const es = new EventSource('/api/stream');
   es.addEventListener('telemetry', (e) => renderTelemetry(JSON.parse(e.data)));
+  es.addEventListener('audio', (e) => updateAudioUI(JSON.parse(e.data)));
   es.addEventListener('drops', (e) => renderDrops(JSON.parse(e.data)));
   es.addEventListener('macros', (e) => {
     macros = JSON.parse(e.data);

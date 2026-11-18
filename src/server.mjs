@@ -9,19 +9,25 @@ import { WinBridge } from './winControl.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(__dirname, 'ui');
+const MACRO_SCHEMA_VERSION = 2;
 
 export const DEFAULT_MACROS = [
-  { id: 'mute', icon: '🔇', label: '静音切换', sub: 'System Mute', color: '#ef4444', actionType: 'vk', value: 'media_mute' },
-  { id: 'vol_down', icon: '🔉', label: '音量 -', sub: 'Volume Down', color: '#38bdf8', actionType: 'vk', value: 'vol_down' },
-  { id: 'vol_up', icon: '🔊', label: '音量 +', sub: 'Volume Up', color: '#38bdf8', actionType: 'vk', value: 'vol_up' },
-  { id: 'play_pause', icon: '⏯️', label: '播放 / 暂停', sub: 'Media Play', color: '#22c55e', actionType: 'vk', value: 'media_play_pause' },
+  { id: 'mute', icon: '🔇', label: '静音切换', sub: 'CoreAudio Mute', color: '#ef4444', actionType: 'audio_mute', value: '' },
+  { id: 'vol_down', icon: '🔉', label: '音量 -8%', sub: 'Volume -8%', color: '#38bdf8', actionType: 'audio_step', value: '-8' },
+  { id: 'vol_up', icon: '🔊', label: '音量 +8%', sub: 'Volume +8%', color: '#38bdf8', actionType: 'audio_step', value: '8' },
+  { id: 'play_pause', icon: '⏯️', label: '播放 / 暂停', sub: 'Media Play/Pause', color: '#22c55e', actionType: 'vk', value: 'media_play_pause' },
   { id: 'next_track', icon: '⏭️', label: '切下一首', sub: 'Next Track', color: '#a855f7', actionType: 'vk', value: 'media_next' },
-  { id: 'screenshot', icon: '📸', label: '电脑截屏传手机', sub: 'Grab PC Screen', color: '#f59e0b', actionType: 'screenshot', value: '' },
-  { id: 'boss_key', icon: '🧹', label: '老板键回桌面', sub: 'Win + D', color: '#06b6d4', actionType: 'show_desktop', value: '' },
-  { id: 'open_term', icon: '💻', label: '打开终端', sub: 'PowerShell', color: '#6366f1', actionType: 'open_app', value: 'terminal' },
-  { id: 'open_drops', icon: '📂', label: '打开快传目录', sub: 'Drops Folder', color: '#eab308', actionType: 'open_app', value: 'explorer_drops' },
+
+  { id: 'screenshot', icon: '📸', label: '全屏截屏预览', sub: '弹窗直看 + 秒存', color: '#f59e0b', actionType: 'screenshot', value: '' },
+  { id: 'snipping', icon: '✂️', label: '区域框选截图', sub: 'Win + Shift + S', color: '#fb923c', actionType: 'snipping_tool', value: '' },
+  { id: 'pull_clip', icon: '📋', label: '提取电脑剪贴板', sub: '一键拉取复制', color: '#14b8a6', actionType: 'pull_clipboard', value: '' },
+  { id: 'boss_key', icon: '🧹', label: '老板键回桌面', sub: '切换显示桌面', color: '#06b6d4', actionType: 'show_desktop', value: '' },
+  { id: 'open_term', icon: '💻', label: '打开终端', sub: 'Windows Terminal', color: '#6366f1', actionType: 'open_app', value: 'terminal' },
+
+  { id: 'open_ws', icon: '📂', label: '打开工作区', sub: 'Explorer E:\\ai', color: '#eab308', actionType: 'open_app', value: 'explorer_workspace' },
+  { id: 'calc', icon: '🧮', label: '科学计算器', sub: 'Calculator', color: '#10b981', actionType: 'open_app', value: 'calc' },
+  { id: 'sound_cfg', icon: '⚙️', label: '声音输出切换', sub: '耳机/音响设置', color: '#0ea5e9', actionType: 'open_app', value: 'sound_settings' },
   { id: 'task_mgr', icon: '📊', label: '任务管理器', sub: 'Task Manager', color: '#ec4899', actionType: 'open_app', value: 'taskmgr' },
-  { id: 'github', icon: '🐙', label: '我的 GitHub', sub: 'dyc19991225', color: '#8b5cf6', actionType: 'open_url', value: 'https://github.com/dyc19991225' },
   { id: 'lock_pc', icon: '🔒', label: '一键锁屏', sub: '双击防误触', color: '#64748b', actionType: 'lock_pc', value: '', confirmRequired: true },
 ];
 
@@ -88,7 +94,6 @@ export function createPocketDeckServer(opts = {}) {
   fs.mkdirSync(stateDir, { recursive: true });
   fs.mkdirSync(dropsDir, { recursive: true });
 
-  // Load or generate persistent 6-digit pairing PIN
   const pinFile = path.join(stateDir, 'pair.json');
   let pairPin = opts.pin || '';
   if (!pairPin && fs.existsSync(pinFile)) {
@@ -103,21 +108,26 @@ export function createPocketDeckServer(opts = {}) {
     fs.writeFileSync(pinFile, JSON.stringify({ pin: pairPin }, null, 2));
   }
 
-  // Load or seed macros
+  // Load or upgrade macros schema
   const macrosFile = path.join(stateDir, 'macros.json');
   let macros = [...DEFAULT_MACROS];
   if (fs.existsSync(macrosFile)) {
     try {
       const parsed = JSON.parse(fs.readFileSync(macrosFile, 'utf8'));
-      if (Array.isArray(parsed) && parsed.length > 0) macros = parsed;
+      if (parsed && parsed.version === MACRO_SCHEMA_VERSION && Array.isArray(parsed.items)) {
+        macros = parsed.items;
+      } else {
+        fs.writeFileSync(macrosFile, JSON.stringify({ version: MACRO_SCHEMA_VERSION, items: macros }, null, 2));
+      }
     } catch {
       macros = [...DEFAULT_MACROS];
     }
   } else {
-    fs.writeFileSync(macrosFile, JSON.stringify(macros, null, 2));
+    fs.writeFileSync(macrosFile, JSON.stringify({ version: MACRO_SCHEMA_VERSION, items: macros }, null, 2));
   }
 
-  const saveMacros = () => fs.writeFileSync(macrosFile, JSON.stringify(macros, null, 2));
+  const saveMacros = () =>
+    fs.writeFileSync(macrosFile, JSON.stringify({ version: MACRO_SCHEMA_VERSION, items: macros }, null, 2));
 
   const telemetry = new PcTelemetry();
   const win = new WinBridge({ dropsDir, workspaceDir, dryRun: Boolean(opts.dryRun) });
@@ -161,9 +171,10 @@ export function createPocketDeckServer(opts = {}) {
     broadcast('log', entry);
   };
 
-  const interval = setInterval(() => {
+  const interval = setInterval(async () => {
     if (sseClients.size > 0) {
-      broadcast('telemetry', telemetry.sampleFast());
+      const audio = await win.getAudioState();
+      broadcast('telemetry', { ...telemetry.sampleFast(), audio });
     }
   }, 1500);
   interval.unref?.();
@@ -190,7 +201,6 @@ export function createPocketDeckServer(opts = {}) {
       const local = isLoopback(req.socket.remoteAddress);
       const authed = checkAuth(req, urlObj);
 
-      // QR scan auto-cookie pairing redirect (`/?pin=123456`)
       if (pathname === '/' && urlObj.searchParams.get('pin') === pairPin) {
         res.writeHead(302, {
           'Set-Cookie': `pd_pin=${pairPin}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax`,
@@ -200,11 +210,10 @@ export function createPocketDeckServer(opts = {}) {
         return;
       }
 
-      // Pairing PIN endpoint (accessible before auth)
       if (pathname === '/api/pair' && req.method === 'POST') {
         const body = await readJsonBody(req);
         if (String(body.pin || '').trim() === pairPin) {
-          pushLog('📱 新移动设备已通过 PIN 配对连接！', 'pair');
+          pushLog('📱 移动设备配对成功！', 'pair');
           sendJson(
             res,
             200,
@@ -217,7 +226,6 @@ export function createPocketDeckServer(opts = {}) {
         return;
       }
 
-      // Bootstrap info (if unauthorized LAN device, return locked state without sensitive info)
       if (pathname === '/api/bootstrap' && req.method === 'GET') {
         const port = server.address()?.port || opts.port || 4799;
         const snap = telemetry.sampleFast();
@@ -225,6 +233,7 @@ export function createPocketDeckServer(opts = {}) {
           sendJson(res, 200, { authorized: false, hostname: snap.hostname });
           return;
         }
+        const audio = await win.getAudioState();
         const pairUrl = `http://${snap.lanIp}:${port}/?pin=${pairPin}`;
         sendJson(res, 200, {
           authorized: true,
@@ -235,12 +244,11 @@ export function createPocketDeckServer(opts = {}) {
           macros,
           drops: listDrops(),
           logs: recentLogs,
-          telemetry: snap,
+          telemetry: { ...snap, audio },
         });
         return;
       }
 
-      // Gate all other /api/* and /drops/* routes behind auth!
       if (pathname.startsWith('/api/') || pathname.startsWith('/drops/')) {
         if (!authed) {
           sendJson(res, 401, { ok: false, error: '未配对授权，请先扫码或输入 6 位配对码' });
@@ -254,9 +262,18 @@ export function createPocketDeckServer(opts = {}) {
           'Cache-Control': 'no-cache',
           Connection: 'keep-alive',
         });
-        res.write(`event: telemetry\ndata: ${JSON.stringify(telemetry.sampleFast())}\n\n`);
+        const audio = await win.getAudioState();
+        res.write(`event: telemetry\ndata: ${JSON.stringify({ ...telemetry.sampleFast(), audio })}\n\n`);
         sseClients.add(res);
         req.on('close', () => sseClients.delete(res));
+        return;
+      }
+
+      if (pathname === '/api/audio' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const out = await win.setVolume(body.vol);
+        broadcast('audio', out.audio);
+        sendJson(res, 200, out);
         return;
       }
 
@@ -268,11 +285,15 @@ export function createPocketDeckServer(opts = {}) {
           return;
         }
         const out = await win.executeMacro(macro);
-        pushLog(`${macro.icon} ${out.message}`, local ? 'PC' : 'Phone');
-        if (out.fileUrl) {
-          broadcast('drops', listDrops());
+        if (out.ok) {
+          pushLog(`[${local ? '电脑' : '手机'}] ${out.message}`, local ? 'PC' : 'Phone');
+        } else {
+          pushLog(`❌ 执行失败 (${macro.label}): ${out.error}`, 'err');
         }
-        sendJson(res, 200, { ...out, drops: out.fileUrl ? listDrops() : undefined });
+        if (out.audio) broadcast('audio', out.audio);
+        const drops = out.fileUrl ? listDrops() : undefined;
+        if (drops) broadcast('drops', drops);
+        sendJson(res, 200, { ...out, drops });
         return;
       }
 
@@ -284,7 +305,7 @@ export function createPocketDeckServer(opts = {}) {
           label: String(body.label || '快捷指令').slice(0, 18),
           sub: String(body.sub || body.actionType || '').slice(0, 22),
           color: /^#[0-9a-fA-F]{6}$/.test(body.color || '') ? body.color : '#38bdf8',
-          actionType: String(body.actionType || 'vk'),
+          actionType: String(body.actionType || 'open_url'),
           value: String(body.value || ''),
           confirmRequired: Boolean(body.confirmRequired),
         };
@@ -324,7 +345,7 @@ export function createPocketDeckServer(opts = {}) {
       if (pathname === '/api/clipboard' && req.method === 'POST') {
         const body = await readJsonBody(req);
         await win.setClipboard(String(body.text || ''));
-        pushLog(`📋 已同步剪贴板 (${String(body.text || '').length} 字符)`, local ? 'PC' : 'Phone');
+        pushLog(`📋 已同步电脑剪贴板 (${String(body.text || '').length} 字符)`, local ? 'PC' : 'Phone');
         sendJson(res, 200, { ok: true });
         return;
       }
@@ -383,13 +404,12 @@ export function createPocketDeckServer(opts = {}) {
         const ext = path.extname(full).toLowerCase();
         res.writeHead(200, {
           'Content-Type': MIME[ext] || 'application/octet-stream',
-          'Content-Disposition': `inline; filename="${encodeURIComponent(reqFile)}"`,
+          'Cache-Control': 'no-cache',
         });
         fs.createReadStream(full).pipe(res);
         return;
       }
 
-      // Serve Static UI
       const uiTarget = pathname === '/' ? 'index.html' : pathname.slice(1);
       const safeUiPath = path.normalize(path.join(UI_DIR, uiTarget));
       if (!safeUiPath.startsWith(UI_DIR) || !fs.existsSync(safeUiPath) || !fs.statSync(safeUiPath).isFile()) {
@@ -398,7 +418,7 @@ export function createPocketDeckServer(opts = {}) {
         return;
       }
       const ext = path.extname(safeUiPath).toLowerCase();
-      res.writeHead(200, { 'Content-Type': MIME[ext] || 'text/plain; charset=utf-8' });
+      res.writeHead(200, { 'Content-Type': MIME[ext] || 'text/plain; charset=utf-8', 'Cache-Control': 'no-cache' });
       fs.createReadStream(safeUiPath).pipe(res);
     } catch (err) {
       sendJson(res, 500, { ok: false, error: err?.message || 'Internal error' });
@@ -415,5 +435,5 @@ export function createPocketDeckServer(opts = {}) {
     return new Promise((resolve) => server.close(() => resolve()));
   };
 
-  return { server, closeAll, pairPin, telemetry };
+  return { server, closeAll, pairPin, telemetry, win };
 }

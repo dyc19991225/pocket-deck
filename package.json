@@ -1,6 +1,6 @@
 {
   "name": "pocket-deck",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Zero-dependency wireless Stream Deck macro pad, live PC hardware telemetry monitor, couch trackpad & LAN AirDrop hub for any phone or tablet.",
   "type": "module",
   "bin": {

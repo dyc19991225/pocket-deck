@@ -4,18 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Pocket Deck — 无线宏键盘 · 性能副屏 · 局域网秒传</title>
+    <title>Pocket Deck v2.0 — 无线宏键盘 · 性能副屏 · 局域网秒传</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <!-- PIN Pairing Gate for manual LAN visitors -->
+    <!-- PIN Pairing Gate -->
     <div id="pin-gate" class="pin-gate hidden">
       <div class="pin-card">
-        <div class="pin-logo">🎛️ POCKET DECK</div>
+        <div class="pin-logo">🎛️ POCKET DECK v2.0</div>
         <h2 id="pin-host">连接电脑副屏</h2>
         <p>请输入电脑主控台显示的 6 位安全配对码（或直接用相机扫描电脑屏幕二维码免输直连）</p>
         <input id="pin-input" type="tel" maxlength="6" placeholder="6 位配对码" autocomplete="off" />
-        <button id="pin-submit" class="primary-btn">⚡ 立即配对连接</button>
+        <button id="pin-submit" class="primary-btn full-w">⚡ 立即配对连接</button>
         <div id="pin-err" class="pin-err"></div>
       </div>
     </div>
@@ -26,33 +26,43 @@
         <div class="brand">
           <span class="pulse-dot" id="conn-dot"></span>
           <div>
-            <div class="brand-name">🎛️ POCKET DECK</div>
+            <div class="brand-name">🎛️ POCKET DECK <span class="ver-tag">v2.0</span></div>
             <div class="brand-sub" id="host-sub">正在连接主机...</div>
           </div>
         </div>
 
         <nav class="mode-tabs">
-          <button class="tab-btn active" data-tab="deck">🎛️ 宏键盘</button>
+          <button class="tab-btn active" data-tab="deck">🎛️ 宏键盘 (15键)</button>
           <button class="tab-btn" data-tab="monitor">📊 性能副屏</button>
           <button class="tab-btn" data-tab="airdrop">⚡ 双向快传</button>
           <button class="tab-btn" data-tab="trackpad">🖱️ 无线触控板</button>
         </nav>
 
         <div class="top-pills">
+          <span class="mini-stat" id="pill-vol">🔊 50%</span>
           <span class="mini-stat" id="pill-cpu">CPU 0%</span>
           <span class="mini-stat" id="pill-ram">RAM 0%</span>
           <button class="ghost-btn" id="btn-add-macro">➕ 自定义键</button>
         </div>
       </header>
 
-      <!-- TAB 1: Stream Deck Hardware Keycap Matrix + Desktop QR & Mini Telemetry Sidebar -->
+      <!-- TAB 1: Stream Deck MK.2 (5x3 = 15 Keys) + Hardware Audio Fader + QR Sidebar -->
       <main id="tab-deck" class="tab-view active">
         <div class="deck-layout">
           <section class="deck-chassis">
-            <div class="chassis-head">
-              <span>STREAM DECK LCD MATRIX · 点击即触发真实电脑指令（带机械轴声效）</span>
-              <button class="tiny-link" id="btn-reset-macros">恢复默认按键</button>
+            <!-- Real-Time Windows CoreAudio Hardware Volume Fader Strip! -->
+            <div class="fader-strip">
+              <button class="fader-mute-btn" id="fader-mute-btn" title="点击切换电脑静音">🔊</button>
+              <div class="fader-body">
+                <div class="fader-top">
+                  <span>WINDOWS 系统主音量推子（拖动实时控音）</span>
+                  <strong id="fader-val-label">50%</strong>
+                </div>
+                <input type="range" id="vol-fader" min="0" max="100" value="50" class="vol-slider" />
+              </div>
+              <button class="tiny-link" id="btn-reset-macros">重置布局</button>
             </div>
+
             <div id="keycap-grid" class="keycap-grid"></div>
           </section>
 
@@ -65,7 +75,7 @@
               <div class="qr-body">
                 <div class="qr-svg-wrap" id="qr-svg-box"></div>
                 <div class="qr-info">
-                  <p>手机连同一 Wi-Fi，用相机或微信/浏览器扫码即可免密直连！</p>
+                  <p>手机连同一 Wi-Fi，用相机或浏览器扫码免输直连！（若手机打不开，请在防火墙提示中勾选允许 Node.js）</p>
                   <code id="pair-url-text">http://...</code>
                   <button class="ghost-btn full-w" id="btn-copy-url">📋 复制手机直连链接</button>
                 </div>
@@ -75,7 +85,7 @@
             <div class="mini-gauges">
               <div class="gauge-box">
                 <div class="gauge-row">
-                  <span>🔥 CPU 实时负载</span>
+                  <span>🔥 CPU 负载</span>
                   <strong id="side-cpu-val">0%</strong>
                 </div>
                 <svg id="spark-cpu" class="sparkline" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
@@ -90,7 +100,7 @@
             </div>
 
             <div class="log-box">
-              <div class="log-title">⚡ 实时指令回执流</div>
+              <div class="log-title">⚡ 实时系统执行回执</div>
               <div id="event-logs" class="event-logs"></div>
             </div>
           </aside>
@@ -178,7 +188,7 @@
 
           <div id="touch-surface" class="touch-surface">
             <div class="touch-Crosshair">🖱️</div>
-            <div class="touch-label">单指滑动控制电脑鼠标 · 轻点 = 左键单击</div>
+            <div class="touch-label">单指滑动控制电脑真实鼠标 · 轻点 = 左键单击</div>
           </div>
 
           <div class="mouse-btns">
@@ -191,37 +201,67 @@
       </main>
     </div>
 
+    <!-- Instant Screenshot Lightbox Modal! -->
+    <div id="shot-modal" class="modal-backdrop hidden">
+      <div class="modal-card wide-modal">
+        <div class="mon-header" style="margin-bottom:10px">
+          <span id="shot-title">📸 电脑实时全屏截图</span>
+          <button class="ghost-btn" id="shot-close">✖ 关闭</button>
+        </div>
+        <img id="shot-img" class="shot-preview-img" src="" alt="PC Screenshot" />
+        <div class="btn-row" style="margin-top:12px">
+          <a id="shot-dl" class="primary-btn" href="#" download>⬇ 保存高清原图</a>
+          <button class="ghost-btn" id="shot-open-folder">📂 在电脑打开截图文件夹</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Instant Clipboard Quick-View Modal! -->
+    <div id="clip-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <div class="mon-header" style="margin-bottom:10px">
+          <span>📋 电脑当前剪贴板内容</span>
+          <button class="ghost-btn" id="clip-modal-close">✖</button>
+        </div>
+        <textarea id="clip-modal-text" class="clip-textarea"></textarea>
+        <div class="btn-row">
+          <button class="primary-btn" id="clip-modal-copy">📋 一键复制到本机</button>
+          <button class="ghost-btn" id="clip-modal-push">📤 修改后写回电脑</button>
+        </div>
+      </div>
+    </div>
+
     <!-- Custom Macro Modal -->
     <div id="macro-modal" class="modal-backdrop hidden">
       <div class="modal-card">
         <h3>➕ 添加自定义宏按键</h3>
         <div class="form-row">
           <label>图标 Emoji</label>
-          <input id="m-icon" value="🚀" maxlength="4" />
+          <input id="m-icon" value="📺" maxlength="4" />
         </div>
         <div class="form-row">
           <label>按钮名称</label>
-          <input id="m-label" placeholder="例如：打开 B 站 / 截图快捷键" maxlength="16" />
+          <input id="m-label" value="打开 B 站" maxlength="16" />
         </div>
         <div class="form-row">
           <label>背光霓虹色</label>
-          <input id="m-color" type="color" value="#38bdf8" />
+          <input id="m-color" type="color" value="#fb7185" />
         </div>
         <div class="form-row">
           <label>动作类型</label>
           <select id="m-type">
-            <option value="open_url">🌐 在电脑打开网址 (URL)</option>
-            <option value="sendkeys">⌨️ 发送电脑快捷键 (SendKeys，如 ^+{ESC} 或 #{s})</option>
-            <option value="vk">🎵 系统多媒体按键 (media_play_pause / media_mute)</option>
-            <option value="screenshot">📸 电脑全屏截图传手机</option>
+            <option value="open_url">🌐 在电脑默认浏览器打开网址 (URL)</option>
+            <option value="sendkeys">⌨️ 发送电脑快捷键 (如 ^c 复制 / ^v 粘贴 / ^+{ESC})</option>
+            <option value="snipping_tool">✂️ 唤起区域框选截图 (Win+Shift+S)</option>
+            <option value="screenshot">📸 全屏截图弹窗预览</option>
           </select>
         </div>
         <div class="form-row">
-          <label>参数值</label>
-          <input id="m-val" value="https://www.bilibili.com" placeholder="网址或快捷键表达式" />
+          <label>参数值（网址或快捷键）</label>
+          <input id="m-val" value="https://www.bilibili.com" placeholder="https://..." />
         </div>
         <div class="btn-row">
-          <button class="primary-btn" id="m-save">💾 保存到面板</button>
+          <button class="primary-btn" id="m-save">💾 保存到宏面板</button>
           <button class="ghost-btn" id="m-cancel">取消</button>
         </div>
       </div>
