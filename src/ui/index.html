@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <title>Pocket Deck — 无线宏键盘 · 性能副屏 · 局域网秒传</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <!-- PIN Pairing Gate for manual LAN visitors -->
+    <div id="pin-gate" class="pin-gate hidden">
+      <div class="pin-card">
+        <div class="pin-logo">🎛️ POCKET DECK</div>
+        <h2 id="pin-host">连接电脑副屏</h2>
+        <p>请输入电脑主控台显示的 6 位安全配对码（或直接用相机扫描电脑屏幕二维码免输直连）</p>
+        <input id="pin-input" type="tel" maxlength="6" placeholder="6 位配对码" autocomplete="off" />
+        <button id="pin-submit" class="primary-btn">⚡ 立即配对连接</button>
+        <div id="pin-err" class="pin-err"></div>
+      </div>
+    </div>
+
+    <!-- Main Cockpit -->
+    <div id="cockpit" class="cockpit hidden">
+      <header class="topbar">
+        <div class="brand">
+          <span class="pulse-dot" id="conn-dot"></span>
+          <div>
+            <div class="brand-name">🎛️ POCKET DECK</div>
+            <div class="brand-sub" id="host-sub">正在连接主机...</div>
+          </div>
+        </div>
+
+        <nav class="mode-tabs">
+          <button class="tab-btn active" data-tab="deck">🎛️ 宏键盘</button>
+          <button class="tab-btn" data-tab="monitor">📊 性能副屏</button>
+          <button class="tab-btn" data-tab="airdrop">⚡ 双向快传</button>
+          <button class="tab-btn" data-tab="trackpad">🖱️ 无线触控板</button>
+        </nav>
+
+        <div class="top-pills">
+          <span class="mini-stat" id="pill-cpu">CPU 0%</span>
+          <span class="mini-stat" id="pill-ram">RAM 0%</span>
+          <button class="ghost-btn" id="btn-add-macro">➕ 自定义键</button>
+        </div>
+      </header>
+
+      <!-- TAB 1: Stream Deck Hardware Keycap Matrix + Desktop QR & Mini Telemetry Sidebar -->
+      <main id="tab-deck" class="tab-view active">
+        <div class="deck-layout">
+          <section class="deck-chassis">
+            <div class="chassis-head">
+              <span>STREAM DECK LCD MATRIX · 点击即触发真实电脑指令（带机械轴声效）</span>
+              <button class="tiny-link" id="btn-reset-macros">恢复默认按键</button>
+            </div>
+            <div id="keycap-grid" class="keycap-grid"></div>
+          </section>
+
+          <aside class="side-dock">
+            <div class="qr-card" id="qr-card">
+              <div class="qr-head">
+                <span>📱 手机扫码秒变桌面副屏</span>
+                <span class="pin-badge" id="pair-pin-badge">PIN ------</span>
+              </div>
+              <div class="qr-body">
+                <div class="qr-svg-wrap" id="qr-svg-box"></div>
+                <div class="qr-info">
+                  <p>手机连同一 Wi-Fi，用相机或微信/浏览器扫码即可免密直连！</p>
+                  <code id="pair-url-text">http://...</code>
+                  <button class="ghost-btn full-w" id="btn-copy-url">📋 复制手机直连链接</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="mini-gauges">
+              <div class="gauge-box">
+                <div class="gauge-row">
+                  <span>🔥 CPU 实时负载</span>
+                  <strong id="side-cpu-val">0%</strong>
+                </div>
+                <svg id="spark-cpu" class="sparkline" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+              </div>
+              <div class="gauge-box">
+                <div class="gauge-row">
+                  <span>🧠 内存占用</span>
+                  <strong id="side-ram-val">0 / 0 GB</strong>
+                </div>
+                <svg id="spark-ram" class="sparkline" viewBox="0 0 200 44" preserveAspectRatio="none"></svg>
+              </div>
+            </div>
+
+            <div class="log-box">
+              <div class="log-title">⚡ 实时指令回执流</div>
+              <div id="event-logs" class="event-logs"></div>
+            </div>
+          </aside>
+        </div>
+      </main>
+
+      <!-- TAB 2: Full-Screen Hardware Telemetry Dashboard -->
+      <main id="tab-monitor" class="tab-view">
+        <div class="monitor-grid">
+          <div class="mon-card">
+            <div class="mon-header">
+              <span>🔥 处理器总负载 & 核心矩阵</span>
+              <span class="mon-big" id="mon-cpu-big">0%</span>
+            </div>
+            <div class="mon-sub" id="mon-cpu-model">--</div>
+            <svg id="mon-spark-cpu" class="mon-chart" viewBox="0 0 320 75" preserveAspectRatio="none"></svg>
+            <div class="cores-grid" id="cores-grid"></div>
+          </div>
+
+          <div class="mon-card">
+            <div class="mon-header">
+              <span>🧠 物理内存 & 系统磁盘</span>
+              <span class="mon-big" id="mon-ram-big">0%</span>
+            </div>
+            <div class="mon-sub" id="mon-ram-detail">0 / 0 GB 已用</div>
+            <svg id="mon-spark-ram" class="mon-chart" viewBox="0 0 320 75" preserveAspectRatio="none"></svg>
+
+            <div class="disk-section">
+              <div class="gauge-row">
+                <span>💾 C: 系统盘空间</span>
+                <strong id="mon-disk-text">-- / -- GB</strong>
+              </div>
+              <div class="bar-track"><div id="mon-disk-fill" class="bar-fill" style="width:0%"></div></div>
+            </div>
+
+            <div class="procs-section">
+              <div class="log-title">🏆 内存占用 Top 5 进程</div>
+              <div id="top-procs" class="procs-list"></div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- TAB 3: Bidirectional LAN AirDrop & Clipboard Beam -->
+      <main id="tab-airdrop" class="tab-view">
+        <div class="airdrop-grid">
+          <section class="mon-card">
+            <div class="mon-header">
+              <span>📋 手机 ↔ 电脑 双向剪贴板秒传</span>
+            </div>
+            <p class="mon-sub">手机复制的验证码、长链接或文字，一键塞进电脑剪贴板直接 Ctrl+V！</p>
+            <textarea id="clip-box" class="clip-textarea" placeholder="在此粘贴或输入要双向同步的文字 / 链接 / 代码..."></textarea>
+            <div class="btn-row">
+              <button class="primary-btn" id="btn-push-clip">📤 发送到电脑剪贴板</button>
+              <button class="ghost-btn" id="btn-pull-clip">📥 提取电脑当前剪贴板</button>
+            </div>
+          </section>
+
+          <section class="mon-card">
+            <div class="mon-header">
+              <span>⚡ 局域网零流量文件快传 & 电脑截屏</span>
+              <button class="ghost-btn" id="btn-grab-screen">📸 拍一张电脑全屏</button>
+            </div>
+            <label class="drop-zone" id="drop-zone">
+              <input type="file" id="file-picker" multiple hidden />
+              <div class="drop-icon">🚀</div>
+              <div class="drop-title" id="drop-status">点击选择手机相册/文件，或直接拖拽文件到此秒传</div>
+              <div class="drop-hint">直存电脑 e:\ai\pocket-deck\drops · 零云端纯内网高速直传</div>
+            </label>
+            <div id="drops-list" class="drops-list"></div>
+          </section>
+        </div>
+      </main>
+
+      <!-- TAB 4: Couch Wireless Trackpad & Media / PPT Clicker -->
+      <main id="tab-trackpad" class="tab-view">
+        <div class="trackpad-wrap">
+          <div class="ppt-bar">
+            <button class="ghost-btn" data-pad-vk="key_left">⬅ 上一页/快退</button>
+            <button class="ghost-btn" data-pad-vk="key_space">⏯ 空格播放/暂停</button>
+            <button class="ghost-btn" data-pad-vk="key_right">下一页/快进 ➡</button>
+            <button class="ghost-btn" data-pad-vk="key_f5">📽️ F5 放映</button>
+            <button class="ghost-btn" data-pad-vk="key_esc">✖ Esc 退出</button>
+          </div>
+
+          <div id="touch-surface" class="touch-surface">
+            <div class="touch-Crosshair">🖱️</div>
+            <div class="touch-label">单指滑动控制电脑鼠标 · 轻点 = 左键单击</div>
+          </div>
+
+          <div class="mouse-btns">
+            <button class="pad-click-btn" id="pad-left-click">🖱️ 左键单击</button>
+            <button class="pad-scroll-btn" id="pad-scroll-up">▲ 向上滚轮</button>
+            <button class="pad-scroll-btn" id="pad-scroll-down">▼ 向下滚轮</button>
+            <button class="pad-click-btn" id="pad-right-click">🖱️ 右键菜单</button>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <!-- Custom Macro Modal -->
+    <div id="macro-modal" class="modal-backdrop hidden">
+      <div class="modal-card">
+        <h3>➕ 添加自定义宏按键</h3>
+        <div class="form-row">
+          <label>图标 Emoji</label>
+          <input id="m-icon" value="🚀" maxlength="4" />
+        </div>
+        <div class="form-row">
+          <label>按钮名称</label>
+          <input id="m-label" placeholder="例如：打开 B 站 / 截图快捷键" maxlength="16" />
+        </div>
+        <div class="form-row">
+          <label>背光霓虹色</label>
+          <input id="m-color" type="color" value="#38bdf8" />
+        </div>
+        <div class="form-row">
+          <label>动作类型</label>
+          <select id="m-type">
+            <option value="open_url">🌐 在电脑打开网址 (URL)</option>
+            <option value="sendkeys">⌨️ 发送电脑快捷键 (SendKeys，如 ^+{ESC} 或 #{s})</option>
+            <option value="vk">🎵 系统多媒体按键 (media_play_pause / media_mute)</option>
+            <option value="screenshot">📸 电脑全屏截图传手机</option>
+          </select>
+        </div>
+        <div class="form-row">
+          <label>参数值</label>
+          <input id="m-val" value="https://www.bilibili.com" placeholder="网址或快捷键表达式" />
+        </div>
+        <div class="btn-row">
+          <button class="primary-btn" id="m-save">💾 保存到面板</button>
+          <button class="ghost-btn" id="m-cancel">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
