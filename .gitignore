@@ -1,4 +1,9 @@
 node_modules
 .pocket-deck
+.pocket-deck-secret
+release
+promo
 drops
+docs/*变现*
+docs/*手册*
 .DS_Store

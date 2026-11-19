@@ -6,30 +6,16 @@ import { fileURLToPath } from 'node:url';
 import { renderQrSvg } from './qr.mjs';
 import { PcTelemetry } from './telemetry.mjs';
 import { WinBridge } from './winControl.mjs';
+import { DEFAULT_MACROS, DECK_PROFILES, DECK_THEMES } from './presets.mjs';
+import { verifyLicenseKey, loadShopConfig } from './license.mjs';
+import { MERCHANT_PUBLIC_KEY_PEM } from './licensePublicKey.mjs';
+
+export { DEFAULT_MACROS, DECK_PROFILES, DECK_THEMES };
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UI_DIR = path.join(__dirname, 'ui');
-const MACRO_SCHEMA_VERSION = 2;
-
-export const DEFAULT_MACROS = [
-  { id: 'mute', icon: '🔇', label: '静音切换', sub: 'CoreAudio Mute', color: '#ef4444', actionType: 'audio_mute', value: '' },
-  { id: 'vol_down', icon: '🔉', label: '音量 -8%', sub: 'Volume -8%', color: '#38bdf8', actionType: 'audio_step', value: '-8' },
-  { id: 'vol_up', icon: '🔊', label: '音量 +8%', sub: 'Volume +8%', color: '#38bdf8', actionType: 'audio_step', value: '8' },
-  { id: 'play_pause', icon: '⏯️', label: '播放 / 暂停', sub: 'Media Play/Pause', color: '#22c55e', actionType: 'vk', value: 'media_play_pause' },
-  { id: 'next_track', icon: '⏭️', label: '切下一首', sub: 'Next Track', color: '#a855f7', actionType: 'vk', value: 'media_next' },
-
-  { id: 'screenshot', icon: '📸', label: '全屏截屏预览', sub: '弹窗直看 + 秒存', color: '#f59e0b', actionType: 'screenshot', value: '' },
-  { id: 'snipping', icon: '✂️', label: '区域框选截图', sub: 'Win + Shift + S', color: '#fb923c', actionType: 'snipping_tool', value: '' },
-  { id: 'pull_clip', icon: '📋', label: '提取电脑剪贴板', sub: '一键拉取复制', color: '#14b8a6', actionType: 'pull_clipboard', value: '' },
-  { id: 'boss_key', icon: '🧹', label: '老板键回桌面', sub: '切换显示桌面', color: '#06b6d4', actionType: 'show_desktop', value: '' },
-  { id: 'open_term', icon: '💻', label: '打开终端', sub: 'Windows Terminal', color: '#6366f1', actionType: 'open_app', value: 'terminal' },
-
-  { id: 'open_ws', icon: '📂', label: '打开工作区', sub: 'Explorer E:\\ai', color: '#eab308', actionType: 'open_app', value: 'explorer_workspace' },
-  { id: 'calc', icon: '🧮', label: '科学计算器', sub: 'Calculator', color: '#10b981', actionType: 'open_app', value: 'calc' },
-  { id: 'sound_cfg', icon: '⚙️', label: '声音输出切换', sub: '耳机/音响设置', color: '#0ea5e9', actionType: 'open_app', value: 'sound_settings' },
-  { id: 'task_mgr', icon: '📊', label: '任务管理器', sub: 'Task Manager', color: '#ec4899', actionType: 'open_app', value: 'taskmgr' },
-  { id: 'lock_pc', icon: '🔒', label: '一键锁屏', sub: '双击防误触', color: '#64748b', actionType: 'lock_pc', value: '', confirmRequired: true },
-];
+const PROFILE_STORE_VERSION = 3;
+const FREE_CUSTOM_MACRO_LIMIT = 2;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -86,14 +72,24 @@ function readJsonBody(req, maxBytes = 256 * 1024) {
   });
 }
 
+function cloneDefaultProfiles() {
+  const map = {};
+  for (const p of DECK_PROFILES) {
+    map[p.id] = p.defaults.map((item) => ({ ...item }));
+  }
+  return map;
+}
+
 export function createPocketDeckServer(opts = {}) {
   const rootDir = opts.rootDir || process.cwd();
   const workspaceDir = opts.workspaceDir || path.dirname(rootDir);
+  const publicKeyPem = opts.publicKeyPem || MERCHANT_PUBLIC_KEY_PEM;
   const stateDir = path.join(rootDir, '.pocket-deck');
   const dropsDir = path.join(rootDir, 'drops');
   fs.mkdirSync(stateDir, { recursive: true });
   fs.mkdirSync(dropsDir, { recursive: true });
 
+  // 1. Pairing PIN
   const pinFile = path.join(stateDir, 'pair.json');
   let pairPin = opts.pin || '';
   if (!pairPin && fs.existsSync(pinFile)) {
@@ -108,26 +104,87 @@ export function createPocketDeckServer(opts = {}) {
     fs.writeFileSync(pinFile, JSON.stringify({ pin: pairPin }, null, 2));
   }
 
-  // Load or upgrade macros schema
-  const macrosFile = path.join(stateDir, 'macros.json');
-  let macros = [...DEFAULT_MACROS];
-  if (fs.existsSync(macrosFile)) {
+  // 2. Cryptographic Offline License State
+  const licenseFile = path.join(stateDir, 'license.json');
+  let licenseState = { valid: false, isPro: false, tier: 'free', tierLabel: '免费体验版', serial: '', issuedAt: '' };
+  if (fs.existsSync(licenseFile)) {
     try {
-      const parsed = JSON.parse(fs.readFileSync(macrosFile, 'utf8'));
-      if (parsed && parsed.version === MACRO_SCHEMA_VERSION && Array.isArray(parsed.items)) {
-        macros = parsed.items;
-      } else {
-        fs.writeFileSync(macrosFile, JSON.stringify({ version: MACRO_SCHEMA_VERSION, items: macros }, null, 2));
-      }
+      const saved = JSON.parse(fs.readFileSync(licenseFile, 'utf8'));
+      const ver = verifyLicenseKey(saved?.key || '', publicKeyPem);
+      if (ver.valid) licenseState = ver;
     } catch {
-      macros = [...DEFAULT_MACROS];
+      // ignore invalid license file
     }
-  } else {
-    fs.writeFileSync(macrosFile, JSON.stringify({ version: MACRO_SCHEMA_VERSION, items: macros }, null, 2));
   }
 
-  const saveMacros = () =>
-    fs.writeFileSync(macrosFile, JSON.stringify({ version: MACRO_SCHEMA_VERSION, items: macros }, null, 2));
+  const getLicensePayload = () => ({
+    isPro: Boolean(licenseState.isPro),
+    tier: licenseState.isPro ? licenseState.tier : 'free',
+    tierLabel: licenseState.isPro ? licenseState.tierLabel : '免费体验版',
+    serial: licenseState.serial || '',
+    issuedAt: licenseState.issuedAt || '',
+    freeCustomLimit: FREE_CUSTOM_MACRO_LIMIT,
+    shop: loadShopConfig(rootDir),
+  });
+
+  // 3. Multi-Profile Macros & Theme Store (backward-compatible with v2 macros.json)
+  const profilesFile = path.join(stateDir, 'profiles.json');
+  const legacyMacrosFile = path.join(stateDir, 'macros.json');
+  let store = {
+    version: PROFILE_STORE_VERSION,
+    activeProfile: 'standard',
+    activeTheme: 'cyber_blue',
+    profiles: cloneDefaultProfiles(),
+  };
+
+  if (fs.existsSync(profilesFile)) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(profilesFile, 'utf8'));
+      if (parsed && parsed.version === PROFILE_STORE_VERSION && parsed.profiles) {
+        store = {
+          version: PROFILE_STORE_VERSION,
+          activeProfile: parsed.activeProfile || 'standard',
+          activeTheme: parsed.activeTheme || 'cyber_blue',
+          profiles: { ...cloneDefaultProfiles(), ...parsed.profiles },
+        };
+      }
+    } catch {
+      // keep defaults
+    }
+  } else if (fs.existsSync(legacyMacrosFile)) {
+    try {
+      const legacy = JSON.parse(fs.readFileSync(legacyMacrosFile, 'utf8'));
+      if (legacy && Array.isArray(legacy.items) && legacy.items.length > 0) {
+        store.profiles.standard = legacy.items;
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  // Enforce Pro gates on startup if not activated
+  if (!licenseState.isPro) {
+    const profMeta = DECK_PROFILES.find((p) => p.id === store.activeProfile);
+    if (!profMeta || profMeta.proOnly) store.activeProfile = 'standard';
+    const themeMeta = DECK_THEMES.find((t) => t.id === store.activeTheme);
+    if (!themeMeta || themeMeta.proOnly) store.activeTheme = 'cyber_blue';
+  }
+
+  const saveStore = () => {
+    fs.writeFileSync(profilesFile, JSON.stringify(store, null, 2));
+  };
+  saveStore();
+
+  const getActiveMacros = () => store.profiles[store.activeProfile] || store.profiles.standard;
+  const getProfileMetaList = () =>
+    DECK_PROFILES.map(({ id, name, badge, proOnly, desc, defaults }) => ({
+      id,
+      name,
+      badge,
+      proOnly,
+      desc,
+      builtinIds: defaults.map((d) => d.id),
+    }));
 
   const telemetry = new PcTelemetry();
   const win = new WinBridge({ dropsDir, workspaceDir, dryRun: Boolean(opts.dryRun) });
@@ -233,7 +290,7 @@ export function createPocketDeckServer(opts = {}) {
           sendJson(res, 200, { authorized: false, hostname: snap.hostname });
           return;
         }
-        const audio = await win.getAudioState();
+        const [audio, autostart] = await Promise.all([win.getAudioState(), win.getAutostartStatus()]);
         const pairUrl = `http://${snap.lanIp}:${port}/?pin=${pairPin}`;
         sendJson(res, 200, {
           authorized: true,
@@ -241,7 +298,13 @@ export function createPocketDeckServer(opts = {}) {
           pairPin,
           pairUrl,
           qrSvg: renderQrSvg(pairUrl),
-          macros,
+          activeProfile: store.activeProfile,
+          profiles: getProfileMetaList(),
+          activeTheme: store.activeTheme,
+          themes: DECK_THEMES,
+          license: getLicensePayload(),
+          autostart,
+          macros: getActiveMacros(),
           drops: listDrops(),
           logs: recentLogs,
           telemetry: { ...snap, audio },
@@ -269,6 +332,104 @@ export function createPocketDeckServer(opts = {}) {
         return;
       }
 
+      // License Activation & Status Endpoints
+      if (pathname === '/api/license' && req.method === 'GET') {
+        sendJson(res, 200, { ok: true, license: getLicensePayload() });
+        return;
+      }
+
+      if (pathname === '/api/license/activate' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const rawKey = String(body.key || '').trim();
+        const ver = verifyLicenseKey(rawKey, publicKeyPem);
+        if (!ver.valid) {
+          sendJson(res, 400, { ok: false, error: ver.error });
+          return;
+        }
+        licenseState = ver;
+        fs.writeFileSync(licenseFile, JSON.stringify({ key: rawKey, activatedAt: new Date().toISOString() }, null, 2));
+        const licPayload = getLicensePayload();
+        broadcast('license', licPayload);
+        pushLog(`👑 已成功激活 ${ver.tierLabel} (${ver.serial})！全部专业面板与主题已解锁`, 'pro');
+        sendJson(res, 200, { ok: true, license: licPayload });
+        return;
+      }
+
+      // Switch Macro Profile (Standard / Jianying / Streamer / Office)
+      if (pathname === '/api/profile' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const target = DECK_PROFILES.find((p) => p.id === body.profileId);
+        if (!target) {
+          sendJson(res, 404, { ok: false, error: '未找到该预设面板' });
+          return;
+        }
+        if (target.proOnly && !licenseState.isPro) {
+          sendJson(res, 402, {
+            ok: false,
+            code: 'PRO_REQUIRED',
+            error: `「${target.name}」为 Pro 专业版专属预设，输入激活码即可永久解锁！`,
+          });
+          return;
+        }
+        store.activeProfile = target.id;
+        if (!Array.isArray(store.profiles[target.id])) {
+          store.profiles[target.id] = target.defaults.map((x) => ({ ...x }));
+        }
+        saveStore();
+        const macros = getActiveMacros();
+        broadcast('profile', { activeProfile: store.activeProfile, macros });
+        pushLog(`🎛️ 已切换宏面板：${target.name}`, local ? 'PC' : 'Phone');
+        sendJson(res, 200, { ok: true, activeProfile: store.activeProfile, macros });
+        return;
+      }
+
+      // Switch Cyber Theme
+      if (pathname === '/api/theme' && req.method === 'POST') {
+        const body = await readJsonBody(req);
+        const theme = DECK_THEMES.find((t) => t.id === body.themeId);
+        if (!theme) {
+          sendJson(res, 404, { ok: false, error: '未找到该主题' });
+          return;
+        }
+        if (theme.proOnly && !licenseState.isPro) {
+          sendJson(res, 402, {
+            ok: false,
+            code: 'PRO_REQUIRED',
+            error: `「${theme.name}」为 Pro 专属桌搭主题，激活 Pro 即可永久使用！`,
+          });
+          return;
+        }
+        store.activeTheme = theme.id;
+        saveStore();
+        broadcast('theme', { activeTheme: store.activeTheme });
+        pushLog(`🎨 已切换桌搭背光主题：${theme.name}`, local ? 'PC' : 'Phone');
+        sendJson(res, 200, { ok: true, activeTheme: store.activeTheme });
+        return;
+      }
+
+      // Toggle Windows Silent Startup
+      if (pathname === '/api/autostart' && req.method === 'POST') {
+        if (!licenseState.isPro) {
+          sendJson(res, 402, {
+            ok: false,
+            code: 'PRO_REQUIRED',
+            error: 'Windows 开机静默自启为 Pro 专业版专属功能！',
+          });
+          return;
+        }
+        const body = await readJsonBody(req);
+        const launcherPath = path.join(rootDir, '启动-PocketDeck静默托盘版.vbs');
+        const out = await win.setAutostart(Boolean(body.enabled), launcherPath);
+        if (!out.ok) {
+          sendJson(res, 500, { ok: false, error: out.error || '设置开机自启失败' });
+          return;
+        }
+        broadcast('autostart', { autostart: out.enabled });
+        pushLog(out.enabled ? '🚀 已开启 Windows 开机静默自启' : '⏸️ 已关闭开机自启', 'PC');
+        sendJson(res, 200, { ok: true, autostart: out.enabled });
+        return;
+      }
+
       if (pathname === '/api/audio' && req.method === 'POST') {
         const body = await readJsonBody(req);
         const out = await win.setVolume(body.vol);
@@ -279,6 +440,7 @@ export function createPocketDeckServer(opts = {}) {
 
       if (pathname === '/api/trigger' && req.method === 'POST') {
         const body = await readJsonBody(req);
+        const macros = getActiveMacros();
         const macro = macros.find((m) => m.id === body.id);
         if (!macro) {
           sendJson(res, 404, { ok: false, error: '未找到该按钮' });
@@ -299,29 +461,50 @@ export function createPocketDeckServer(opts = {}) {
 
       if (pathname === '/api/macros' && req.method === 'POST') {
         const body = await readJsonBody(req);
+        const macros = getActiveMacros();
         const item = {
           id: body.id || `custom_${Date.now().toString(36)}`,
           icon: String(body.icon || '⚡').slice(0, 4),
           label: String(body.label || '快捷指令').slice(0, 18),
-          sub: String(body.sub || body.actionType || '').slice(0, 22),
+          sub: String(body.sub || body.value || body.actionType || '').slice(0, 22),
           color: /^#[0-9a-fA-F]{6}$/.test(body.color || '') ? body.color : '#38bdf8',
           actionType: String(body.actionType || 'open_url'),
           value: String(body.value || ''),
           confirmRequired: Boolean(body.confirmRequired),
         };
         const idx = macros.findIndex((m) => m.id === item.id);
+
+        // Enforce Free Tier custom macro limit (exclude internal temporary helper IDs starting with _tmp_)
+        if (idx < 0 && !item.id.startsWith('_tmp_') && !licenseState.isPro) {
+          const profMeta = DECK_PROFILES.find((p) => p.id === store.activeProfile) || DECK_PROFILES[0];
+          const builtinSet = new Set(profMeta.defaults.map((d) => d.id));
+          const customCount = macros.filter((m) => !builtinSet.has(m.id) && !m.id.startsWith('_tmp_')).length;
+          if (customCount >= FREE_CUSTOM_MACRO_LIMIT) {
+            sendJson(res, 402, {
+              ok: false,
+              code: 'PRO_REQUIRED',
+              error: `免费体验版最多添加 ${FREE_CUSTOM_MACRO_LIMIT} 个自定义键，激活 Pro 版即可解锁无限制自定义与剪映/直播专业面板！`,
+            });
+            return;
+          }
+        }
+
         if (idx >= 0) macros[idx] = item;
         else macros.push(item);
-        saveMacros();
+        saveStore();
         broadcast('macros', macros);
-        pushLog(`✨ 新增自定义按键：${item.icon} ${item.label}`);
+        if (!item.id.startsWith('_tmp_')) {
+          pushLog(`✨ 新增自定义按键：${item.icon} ${item.label}`);
+        }
         sendJson(res, 200, { ok: true, macros });
         return;
       }
 
       if (pathname === '/api/macros/reset' && req.method === 'POST') {
-        macros = [...DEFAULT_MACROS];
-        saveMacros();
+        const profMeta = DECK_PROFILES.find((p) => p.id === store.activeProfile) || DECK_PROFILES[0];
+        store.profiles[store.activeProfile] = profMeta.defaults.map((x) => ({ ...x }));
+        saveStore();
+        const macros = getActiveMacros();
         broadcast('macros', macros);
         sendJson(res, 200, { ok: true, macros });
         return;
@@ -329,8 +512,9 @@ export function createPocketDeckServer(opts = {}) {
 
       if (pathname.startsWith('/api/macros/') && req.method === 'DELETE') {
         const targetId = decodeURIComponent(pathname.slice('/api/macros/'.length));
-        macros = macros.filter((m) => m.id !== targetId);
-        saveMacros();
+        store.profiles[store.activeProfile] = getActiveMacros().filter((m) => m.id !== targetId);
+        saveStore();
+        const macros = getActiveMacros();
         broadcast('macros', macros);
         sendJson(res, 200, { ok: true, macros });
         return;

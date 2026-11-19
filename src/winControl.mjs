@@ -23,6 +23,79 @@ const VK_MAP = {
   key_esc: 0x1b,
 };
 
+const CHORD_KEY_MAP = {
+  backspace: 0x08,
+  tab: 0x09,
+  enter: 0x0d,
+  esc: 0x1b,
+  escape: 0x1b,
+  space: 0x20,
+  pageup: 0x21,
+  pgup: 0x21,
+  pagedown: 0x22,
+  pgdn: 0x22,
+  end: 0x23,
+  home: 0x24,
+  left: 0x25,
+  up: 0x26,
+  right: 0x27,
+  down: 0x28,
+  insert: 0x2d,
+  ins: 0x2d,
+  delete: 0x2e,
+  del: 0x2e,
+  plus: 0xbb,
+  '=': 0xbb,
+  minus: 0xbd,
+  '-': 0xbd,
+  comma: 0xbc,
+  ',': 0xbc,
+  period: 0xbe,
+  '.': 0xbe,
+  slash: 0xbf,
+  '/': 0xbf,
+  lbracket: 0xdb,
+  '[': 0xdb,
+  rbracket: 0xdd,
+  ']': 0xdd,
+};
+
+for (let i = 0; i < 26; i++) {
+  CHORD_KEY_MAP[String.fromCharCode(97 + i)] = 0x41 + i;
+}
+for (let i = 0; i <= 9; i++) {
+  CHORD_KEY_MAP[String(i)] = 0x30 + i;
+}
+for (let i = 1; i <= 12; i++) {
+  CHORD_KEY_MAP[`f${i}`] = 0x6f + i;
+}
+
+export function parseHotkeyChord(expr = '') {
+  const parts = String(expr)
+    .toLowerCase()
+    .split('+')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (parts.length === 0) return null;
+
+  let ctrl = false;
+  let alt = false;
+  let shift = false;
+  let win = false;
+  let mainKey = null;
+
+  for (const p of parts) {
+    if (p === 'ctrl' || p === 'control') ctrl = true;
+    else if (p === 'alt' || p === 'opt' || p === 'option') alt = true;
+    else if (p === 'shift') shift = true;
+    else if (p === 'win' || p === 'meta' || p === 'cmd') win = true;
+    else mainKey = p;
+  }
+
+  if (!mainKey || CHORD_KEY_MAP[mainKey] === undefined) return null;
+  return { ctrl, alt, shift, win, code: CHORD_KEY_MAP[mainKey] };
+}
+
 export class WinBridge {
   constructor({ dropsDir, workspaceDir, dryRun = false }) {
     this.dropsDir = dropsDir;
@@ -96,6 +169,11 @@ export class WinBridge {
       if (payload.op === 'clip_set') {
         this._mockClip = String(payload.text || '');
         return Promise.resolve({ ok: true });
+      }
+      if (payload.op === 'get_autostart') return Promise.resolve({ ok: true, enabled: Boolean(this._mockAuto) });
+      if (payload.op === 'set_autostart') {
+        this._mockAuto = Boolean(payload.enabled);
+        return Promise.resolve({ ok: true, enabled: this._mockAuto });
       }
       return Promise.resolve({ ok: true, w: 1920, h: 1080 });
     }
@@ -278,20 +356,39 @@ export class WinBridge {
       return { ok: true, message: `🚀 已在前台打开：${action.label}` };
     }
 
-    // 9. SendKeys Hotkey Combo
+    // 9. Hardware Scan-Code Chord Hotkey (Immune to Chinese IME, supports Win/Ctrl/Alt/Shift!)
+    if (type === 'hotkey') {
+      const chord = parseHotkeyChord(val);
+      if (!chord) return { ok: false, error: `不支持的硬件热键组合：${val}` };
+      const res = await this.callBridge({ op: 'chord', ...chord });
+      if (!res.ok) return { ok: false, error: res.err || '发送热键失败' };
+      return { ok: true, message: `⚡ 已触发硬件级热键：${action.label} (${val.toUpperCase()})` };
+    }
+
+    // 10. Legacy SendKeys Hotkey Combo
     if (type === 'sendkeys') {
       const res = await this.callBridge({ op: 'sendkeys', keys: val });
       if (!res.ok) return { ok: false, error: res.err };
       return { ok: true, message: `⌨️ 已发送快捷键：${action.label}` };
     }
 
-    // 10. Lock Workstation
+    // 11. Lock Workstation
     if (type === 'lock_pc') {
       await this.callBridge({ op: 'lock_pc' });
       return { ok: true, message: '🔒 电脑已执行锁屏指令' };
     }
 
     return { ok: false, error: `不支持的按键类型：${type}` };
+  }
+
+  async getAutostartStatus() {
+    const res = await this.callBridge({ op: 'get_autostart' }, 2000);
+    return Boolean(res.ok && res.enabled);
+  }
+
+  async setAutostart(enabled, launcherPath) {
+    const res = await this.callBridge({ op: 'set_autostart', enabled: Boolean(enabled), launcher: launcherPath }, 2500);
+    return { ok: Boolean(res.ok), enabled: Boolean(res.enabled), error: res.err };
   }
 
   async getClipboard() {

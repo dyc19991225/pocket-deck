@@ -4,14 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
-    <title>Pocket Deck v2.0 — 无线宏键盘 · 性能副屏 · 局域网秒传</title>
+    <title>Pocket Deck v2.5 Pro — 无线宏键盘 · 性能副屏 · 局域网秒传</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
-  <body>
+  <body data-theme="cyber_blue">
     <!-- PIN Pairing Gate -->
     <div id="pin-gate" class="pin-gate hidden">
       <div class="pin-card">
-        <div class="pin-logo">🎛️ POCKET DECK v2.0</div>
+        <div class="pin-logo">🎛️ POCKET DECK v2.5</div>
         <h2 id="pin-host">连接电脑副屏</h2>
         <p>请输入电脑主控台显示的 6 位安全配对码（或直接用相机扫描电脑屏幕二维码免输直连）</p>
         <input id="pin-input" type="tel" maxlength="6" placeholder="6 位配对码" autocomplete="off" />
@@ -26,7 +26,7 @@
         <div class="brand">
           <span class="pulse-dot" id="conn-dot"></span>
           <div>
-            <div class="brand-name">🎛️ POCKET DECK <span class="ver-tag">v2.0</span></div>
+            <div class="brand-name">🎛️ POCKET DECK <span class="ver-tag">v2.5</span></div>
             <div class="brand-sub" id="host-sub">正在连接主机...</div>
           </div>
         </div>
@@ -43,24 +43,31 @@
           <span class="mini-stat" id="pill-cpu">CPU 0%</span>
           <span class="mini-stat" id="pill-ram">RAM 0%</span>
           <button class="ghost-btn" id="btn-add-macro">➕ 自定义键</button>
+          <button class="pro-badge-btn" id="btn-pro-badge">👑 解锁 Pro</button>
         </div>
       </header>
 
-      <!-- TAB 1: Stream Deck MK.2 (5x3 = 15 Keys) + Hardware Audio Fader + QR Sidebar -->
+      <!-- TAB 1: Stream Deck MK.2 (5x3 = 15 Keys) + Profile Bar + Hardware Audio Fader + QR Sidebar -->
       <main id="tab-deck" class="tab-view active">
         <div class="deck-layout">
           <section class="deck-chassis">
+            <!-- Scene Profile & Theme Switcher Strip -->
+            <div class="profile-bar">
+              <div id="profile-tabs" class="profile-tabs"></div>
+              <div class="theme-dots" id="theme-dots" title="切换桌搭背光主题"></div>
+            </div>
+
             <!-- Real-Time Windows CoreAudio Hardware Volume Fader Strip! -->
             <div class="fader-strip">
               <button class="fader-mute-btn" id="fader-mute-btn" title="点击切换电脑静音">🔊</button>
               <div class="fader-body">
                 <div class="fader-top">
-                  <span>WINDOWS 系统主音量推子（拖动实时控音）</span>
+                  <span id="profile-desc-label">WINDOWS 系统主音量推子（拖动实时控音）</span>
                   <strong id="fader-val-label">50%</strong>
                 </div>
                 <input type="range" id="vol-fader" min="0" max="100" value="50" class="vol-slider" />
               </div>
-              <button class="tiny-link" id="btn-reset-macros">重置布局</button>
+              <button class="tiny-link" id="btn-reset-macros">重置本页</button>
             </div>
 
             <div id="keycap-grid" class="keycap-grid"></div>
@@ -75,7 +82,7 @@
               <div class="qr-body">
                 <div class="qr-svg-wrap" id="qr-svg-box"></div>
                 <div class="qr-info">
-                  <p>手机连同一 Wi-Fi，用相机或浏览器扫码免输直连！（若手机打不开，请在防火墙提示中勾选允许 Node.js）</p>
+                  <p>手机连同一 Wi-Fi，用相机或浏览器扫码免输直连！（若手机打不开，请在防火墙提示中勾选允许）</p>
                   <code id="pair-url-text">http://...</code>
                   <button class="ghost-btn full-w" id="btn-copy-url">📋 复制手机直连链接</button>
                 </div>
@@ -168,7 +175,7 @@
               <input type="file" id="file-picker" multiple hidden />
               <div class="drop-icon">🚀</div>
               <div class="drop-title" id="drop-status">点击选择手机相册/文件，或直接拖拽文件到此秒传</div>
-              <div class="drop-hint">直存电脑 e:\ai\pocket-deck\drops · 零云端纯内网高速直传</div>
+              <div class="drop-hint">直存电脑本地 drops 快传目录 · 零云端纯内网高速直传</div>
             </label>
             <div id="drops-list" class="drops-list"></div>
           </section>
@@ -237,11 +244,11 @@
         <h3>➕ 添加自定义宏按键</h3>
         <div class="form-row">
           <label>图标 Emoji</label>
-          <input id="m-icon" value="📺" maxlength="4" />
+          <input id="m-icon" value="✂️" maxlength="4" />
         </div>
         <div class="form-row">
           <label>按钮名称</label>
-          <input id="m-label" value="打开 B 站" maxlength="16" />
+          <input id="m-label" value="一键分割素材" maxlength="16" />
         </div>
         <div class="form-row">
           <label>背光霓虹色</label>
@@ -250,19 +257,69 @@
         <div class="form-row">
           <label>动作类型</label>
           <select id="m-type">
+            <option value="hotkey">⚡ 硬件级热键组合 (无视中文输入法，如 ctrl+b / alt+g / win+alt+r)</option>
             <option value="open_url">🌐 在电脑默认浏览器打开网址 (URL)</option>
-            <option value="sendkeys">⌨️ 发送电脑快捷键 (如 ^c 复制 / ^v 粘贴 / ^+{ESC})</option>
+            <option value="sendkeys">⌨️ 文本按键序列 (SendKeys，如 ^c / ^v)</option>
             <option value="snipping_tool">✂️ 唤起区域框选截图 (Win+Shift+S)</option>
             <option value="screenshot">📸 全屏截图弹窗预览</option>
           </select>
         </div>
         <div class="form-row">
-          <label>参数值（网址或快捷键）</label>
-          <input id="m-val" value="https://www.bilibili.com" placeholder="https://..." />
+          <label>参数值（如 ctrl+b / space / https://...）</label>
+          <input id="m-val" value="ctrl+b" placeholder="如 ctrl+b 或 https://..." />
         </div>
         <div class="btn-row">
-          <button class="primary-btn" id="m-save">💾 保存到宏面板</button>
+          <button class="primary-btn" id="m-save">💾 保存到当前宏面板</button>
           <button class="ghost-btn" id="m-cancel">取消</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pro Activation & Privilege Modal -->
+    <div id="pro-modal" class="modal-backdrop hidden">
+      <div class="modal-card pro-modal-card">
+        <div class="mon-header" style="margin-bottom:8px">
+          <span id="pro-modal-title">👑 解锁 Pocket Deck Pro 终身版</span>
+          <button class="ghost-btn" id="pro-modal-close">✖</button>
+        </div>
+
+        <div id="pro-price-banner" class="pro-price-banner">¥19.9 终身买断（一次激活 · 永久免费升级）</div>
+
+        <ul class="pro-perks-list">
+          <li>🎬 <strong>剪映 / PR 专属 15 键剪辑台</strong>：底层扫描码热键无视中文输入法，一键分割、删气口、打标、导出</li>
+          <li>🎙️ <strong>OBS 直播导播台 & 🐟 打工人摸鱼台</strong>：录屏抓高光、闭麦切机位、双虚拟桌面秒切隐身</li>
+          <li>🎨 <strong>4 套高颜值客制化桌搭背光皮肤</strong>（初号机紫 / 黑金暖光 / 黑客绿）+ <strong>♾️ 无限自定义按键</strong></li>
+          <li>🚀 <strong>Windows 开机静默托盘自启</strong>：告别黑框命令行，开机即连</li>
+        </ul>
+
+        <!-- Unactivated View -->
+        <div id="pro-activate-box">
+          <div class="pro-channel-note" id="pro-channel-note"></div>
+          <div id="pro-shop-row" class="btn-row" style="margin-bottom:12px">
+            <a id="pro-shop-link" class="gold-btn full-w hidden" href="#" target="_blank" rel="noopener">🛒 立即前往获取 Pro 激活码</a>
+            <div id="pro-contact-text" class="pro-contact-box"></div>
+          </div>
+          <div class="form-row">
+            <label>粘贴您的离线激活码（PDPRO- 开头）</label>
+            <input id="pro-key-input" placeholder="PDPRO-..." autocomplete="off" />
+          </div>
+          <div id="pro-err" class="pin-err" style="margin-bottom:10px"></div>
+          <button id="pro-activate-btn" class="gold-btn full-w">⚡ 立即验证并永久解锁 Pro</button>
+        </div>
+
+        <!-- Activated View -->
+        <div id="pro-activated-box" class="hidden">
+          <div class="pro-active-card">
+            <div class="pro-active-badge">✅ 已永久激活 Pro 终身授权</div>
+            <div class="pro-active-meta" id="pro-serial-text">授权编号：#100101</div>
+          </div>
+          <div class="autostart-row">
+            <div>
+              <strong>🚀 Windows 开机静默自启</strong>
+              <div class="mon-sub" style="margin:2px 0 0">登录系统自动驻留后台托盘，无需手动启动</div>
+            </div>
+            <button id="btn-toggle-autostart" class="ghost-btn">开启自启</button>
+          </div>
         </div>
       </div>
     </div>

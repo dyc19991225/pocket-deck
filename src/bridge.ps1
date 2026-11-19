@@ -50,11 +50,37 @@ public class WinDeckNative {
     keybd_event(0, 0, 0, UIntPtr.Zero);
   }
 
-  public static void TapVk(byte vk) {
+  public static void KeyDown(byte vk) {
     byte scan = (byte)MapVirtualKey(vk, 0);
-    uint ext = (vk >= 0x21 && vk <= 0x28) || (vk >= 0xAD && vk <= 0xB3) ? 1u : 0u;
+    uint ext = (vk == 0x5B || vk == 0x5C || (vk >= 0x21 && vk <= 0x28) || vk == 0x2D || vk == 0x2E || (vk >= 0xAD && vk <= 0xB3)) ? 1u : 0u;
     keybd_event(vk, scan, ext, UIntPtr.Zero);
+  }
+
+  public static void KeyUp(byte vk) {
+    byte scan = (byte)MapVirtualKey(vk, 0);
+    uint ext = (vk == 0x5B || vk == 0x5C || (vk >= 0x21 && vk <= 0x28) || vk == 0x2D || vk == 0x2E || (vk >= 0xAD && vk <= 0xB3)) ? 1u : 0u;
     keybd_event(vk, scan, ext | 2u, UIntPtr.Zero);
+  }
+
+  public static void TapVk(byte vk) {
+    KeyDown(vk);
+    KeyUp(vk);
+  }
+
+  public static void SendChord(bool ctrl, bool alt, bool shift, bool win, byte vk) {
+    if (win) KeyDown(0x5B);
+    if (ctrl) KeyDown(0x11);
+    if (alt) KeyDown(0x12);
+    if (shift) KeyDown(0x10);
+    if (win || ctrl || alt || shift) System.Threading.Thread.Sleep(6);
+    KeyDown(vk);
+    System.Threading.Thread.Sleep(6);
+    KeyUp(vk);
+    if (win || ctrl || alt || shift) System.Threading.Thread.Sleep(4);
+    if (shift) KeyUp(0x10);
+    if (alt) KeyUp(0x12);
+    if (ctrl) KeyUp(0x11);
+    if (win) KeyUp(0x5B);
   }
 
   private static IAudioEndpointVolume GetVolObj() {
@@ -145,6 +171,27 @@ while ($true) {
     elseif ($op -eq "vk") {
       [WinDeckNative]::TapVk([byte]$cmd.code)
       Write-Output (@{ reqId = $id; ok = $true } | ConvertTo-Json -Compress)
+    }
+    elseif ($op -eq "chord") {
+      [WinDeckNative]::SendChord([bool]$cmd.ctrl, [bool]$cmd.alt, [bool]$cmd.shift, [bool]$cmd.win, [byte]$cmd.code)
+      Write-Output (@{ reqId = $id; ok = $true } | ConvertTo-Json -Compress)
+    }
+    elseif ($op -eq "get_autostart") {
+      $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+      $prop = Get-ItemProperty -Path $runKey -Name "PocketDeck" -ErrorAction SilentlyContinue
+      $enabled = ($null -ne $prop -and [string]$prop.PocketDeck -ne "")
+      Write-Output (@{ reqId = $id; ok = $true; enabled = $enabled } | ConvertTo-Json -Compress)
+    }
+    elseif ($op -eq "set_autostart") {
+      $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+      if ([bool]$cmd.enabled) {
+        $vbs = [string]$cmd.launcher
+        Set-ItemProperty -Path $runKey -Name "PocketDeck" -Value ("wscript.exe `"$vbs`"")
+        Write-Output (@{ reqId = $id; ok = $true; enabled = $true } | ConvertTo-Json -Compress)
+      } else {
+        Remove-ItemProperty -Path $runKey -Name "PocketDeck" -ErrorAction SilentlyContinue
+        Write-Output (@{ reqId = $id; ok = $true; enabled = $false } | ConvertTo-Json -Compress)
+      }
     }
     elseif ($op -eq "move") {
       $p = [System.Windows.Forms.Cursor]::Position

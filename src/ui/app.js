@@ -2,23 +2,29 @@ class KeySwitchAudio {
   constructor() {
     this.ctx = null;
   }
+  ensureCtx() {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!this.ctx) this.ctx = new AC();
+    if (this.ctx.state === 'suspended') this.ctx.resume();
+    return this.ctx;
+  }
   click(accent = false) {
     try {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (!this.ctx) this.ctx = new AC();
-      if (this.ctx.state === 'suspended') this.ctx.resume();
-      const t = this.ctx.currentTime;
+      const ctx = this.ensureCtx();
+      if (!ctx) return;
+      const t = ctx.currentTime;
 
-      const osc = this.ctx.createOscillator();
+      const osc = ctx.createOscillator();
       osc.type = 'triangle';
       osc.frequency.setValueAtTime(accent ? 1380 : 980, t);
       osc.frequency.exponentialRampToValueAtTime(150, t + 0.032);
 
-      const g = this.ctx.createGain();
+      const g = ctx.createGain();
       g.gain.setValueAtTime(0.24, t);
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.036);
 
-      osc.connect(g).connect(this.ctx.destination);
+      osc.connect(g).connect(ctx.destination);
       osc.start(t);
       osc.stop(t + 0.04);
     } catch {
@@ -26,16 +32,40 @@ class KeySwitchAudio {
     }
     if (navigator.vibrate) navigator.vibrate(accent ? [18, 25, 18] : 14);
   }
+  celebrate() {
+    try {
+      const ctx = this.ensureCtx();
+      if (!ctx) return;
+      const notes = [523.25, 659.25, 783.99, 1046.5];
+      notes.forEach((freq, idx) => {
+        const t = ctx.currentTime + idx * 0.075;
+        const osc = ctx.createOscillator();
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(freq, t);
+        const g = ctx.createGain();
+        g.gain.setValueAtTime(0.2, t);
+        g.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+        osc.connect(g).connect(ctx.destination);
+        osc.start(t);
+        osc.stop(t + 0.23);
+      });
+    } catch {
+      // ignore
+    }
+    if (navigator.vibrate) navigator.vibrate([25, 35, 25, 35, 45]);
+  }
 }
 
 const keyAudio = new KeySwitchAudio();
-const BUILTIN_IDS = new Set([
-  'mute', 'vol_down', 'vol_up', 'play_pause', 'next_track',
-  'screenshot', 'snipping', 'pull_clip', 'boss_key', 'open_term',
-  'open_ws', 'calc', 'sound_cfg', 'task_mgr', 'lock_pc',
-]);
 
 let macros = [];
+let profiles = [];
+let activeProfile = 'standard';
+let themes = [];
+let activeTheme = 'cyber_blue';
+let license = { isPro: false, tierLabel: '免费体验版', serial: '', shop: {} };
+let autostartEnabled = false;
+
 let audioState = { vol: 50, muted: false };
 let userDraggingFader = false;
 let armedId = null;
@@ -47,7 +77,150 @@ function showToast(msg) {
   el.textContent = msg;
   el.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+}
+
+function getCurrentBuiltinSet() {
+  const prof = profiles.find((p) => p.id === activeProfile);
+  if (prof && Array.isArray(prof.builtinIds)) return new Set(prof.builtinIds);
+  return new Set([
+    'mute', 'vol_down', 'vol_up', 'play_pause', 'next_track',
+    'screenshot', 'snipping', 'pull_clip', 'boss_key', 'open_term',
+    'open_ws', 'calc', 'sound_cfg', 'task_mgr', 'lock_pc',
+  ]);
+}
+
+function applyTheme(themeId) {
+  activeTheme = themeId || 'cyber_blue';
+  document.body.setAttribute('data-theme', activeTheme);
+  renderThemes();
+}
+
+function openProModal(reasonMsg = '') {
+  updateLicenseUI();
+  document.getElementById('pro-err').textContent = reasonMsg || '';
+  document.getElementById('pro-modal').classList.remove('hidden');
+}
+
+function updateLicenseUI() {
+  const badge = document.getElementById('btn-pro-badge');
+  if (license.isPro) {
+    badge.textContent = `👑 PRO ${license.serial || '终身版'}`;
+    badge.classList.add('is-pro');
+    document.getElementById('pro-modal-title').textContent = '👑 Pocket Deck Pro 终身授权中心';
+    document.getElementById('pro-activate-box').classList.add('hidden');
+    document.getElementById('pro-activated-box').classList.remove('hidden');
+    document.getElementById('pro-serial-text').textContent = `${license.tierLabel || 'Pro 终身专业版'} · 序列号 ${license.serial || ''} · 签发于 ${license.issuedAt || ''}`;
+  } else {
+    badge.textContent = '👑 解锁 Pro';
+    badge.classList.remove('is-pro');
+    document.getElementById('pro-modal-title').textContent = '👑 解锁 Pocket Deck Pro 终身版';
+    document.getElementById('pro-activate-box').classList.remove('hidden');
+    document.getElementById('pro-activated-box').classList.add('hidden');
+  }
+
+  const shop = license.shop || {};
+  if (shop.priceLabel) {
+    document.getElementById('pro-price-banner').textContent = shop.priceLabel;
+  }
+  document.getElementById('pro-channel-note').textContent = shop.shopChannelNote || '';
+
+  const shopLink = document.getElementById('pro-shop-link');
+  const contactBox = document.getElementById('pro-contact-text');
+  if (shop.shopUrl && /^https?:\/\//i.test(shop.shopUrl)) {
+    shopLink.href = shop.shopUrl;
+    shopLink.classList.remove('hidden');
+    contactBox.classList.add('hidden');
+  } else {
+    shopLink.classList.add('hidden');
+    contactBox.classList.remove('hidden');
+    contactBox.textContent = shop.contactNote || '闲鱼 / 面包多搜索「Pocket Deck」自动发码';
+  }
+
+  const autoBtn = document.getElementById('btn-toggle-autostart');
+  if (autoBtn) {
+    autoBtn.textContent = autostartEnabled ? '✅ 已开启（点击关闭）' : '🚀 开启开机自启';
+  }
+
+  renderProfiles();
+  renderThemes();
+}
+
+function renderProfiles() {
+  const wrap = document.getElementById('profile-tabs');
+  if (!wrap || !profiles.length) return;
+
+  wrap.innerHTML = profiles
+    .map((p) => {
+      const locked = p.proOnly && !license.isPro;
+      const lockBadge = locked ? '<span class="prof-lock">🔒PRO</span>' : '';
+      return `<button class="prof-pill ${p.id === activeProfile ? 'active' : ''}" data-prof="${p.id}" title="${p.desc || ''}">${p.name}${lockBadge}</button>`;
+    })
+    .join('');
+
+  const curProf = profiles.find((p) => p.id === activeProfile);
+  const descEl = document.getElementById('profile-desc-label');
+  if (curProf && descEl) {
+    descEl.textContent = `${curProf.name} · ${curProf.desc || '拖动推子实时控音'}`;
+  }
+
+  wrap.querySelectorAll('[data-prof]').forEach((btn) => {
+    btn.onclick = async () => {
+      const profileId = btn.dataset.prof;
+      if (profileId === activeProfile) return;
+      keyAudio.click(false);
+      const res = await fetch('/api/profile', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        activeProfile = data.activeProfile;
+        macros = data.macros;
+        renderProfiles();
+        renderMacros();
+        showToast(`🎛️ 已切换至 ${btn.textContent.replace('🔒PRO', '').trim()}`);
+      } else if (data.code === 'PRO_REQUIRED') {
+        openProModal(data.error);
+      } else {
+        showToast(`❌ ${data.error || '切换失败'}`);
+      }
+    };
+  });
+}
+
+function renderThemes() {
+  const wrap = document.getElementById('theme-dots');
+  if (!wrap || !themes.length) return;
+
+  wrap.innerHTML = themes
+    .map((t) => {
+      const locked = t.proOnly && !license.isPro;
+      return `<button class="theme-dot ${t.id === activeTheme ? 'active' : ''}" style="background:${t.accent};color:${t.accent}" data-theme-id="${t.id}" title="${t.name}${locked ? ' (Pro 专属)' : ''}"></button>`;
+    })
+    .join('');
+
+  wrap.querySelectorAll('[data-theme-id]').forEach((dot) => {
+    dot.onclick = async () => {
+      const themeId = dot.dataset.themeId;
+      if (themeId === activeTheme) return;
+      keyAudio.click(false);
+      const res = await fetch('/api/theme', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ themeId }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        applyTheme(data.activeTheme);
+        const meta = themes.find((x) => x.id === themeId);
+        showToast(`🎨 已切换主题：${meta ? meta.name : themeId}`);
+      } else if (data.code === 'PRO_REQUIRED') {
+        openProModal(data.error);
+      }
+    };
+  });
 }
 
 function drawSparkline(svgId, values, strokeHex, fillHex) {
@@ -84,7 +257,6 @@ function updateAudioUI(audio) {
     document.getElementById('vol-fader').value = String(audio.vol);
   }
 
-  // Update dynamic sub-labels on audio keycaps without rebuilding DOM if already rendered
   const muteCard = document.querySelector('[data-mid="mute"]');
   if (muteCard) {
     muteCard.classList.toggle('muted-state', Boolean(audio.muted));
@@ -112,9 +284,11 @@ function openClipboardModal(text) {
 
 function renderMacros() {
   const grid = document.getElementById('keycap-grid');
+  const builtinSet = getCurrentBuiltinSet();
+
   grid.innerHTML = macros
     .map((m) => {
-      const customDel = !BUILTIN_IDS.has(m.id)
+      const customDel = !builtinSet.has(m.id)
         ? `<button class="key-del" data-del="${m.id}" title="删除此自定义按钮">✕</button>`
         : '';
       const isMutedCard = m.id === 'mute' && audioState.muted;
@@ -301,6 +475,51 @@ function setupTabsAndActions(boot) {
     document.getElementById('pair-url-text').textContent = boot.pairUrl;
   }
 
+  // Pro Modal Actions
+  document.getElementById('btn-pro-badge').onclick = () => {
+    keyAudio.click(false);
+    openProModal('');
+  };
+  document.getElementById('pro-modal-close').onclick = () =>
+    document.getElementById('pro-modal').classList.add('hidden');
+
+  document.getElementById('pro-activate-btn').onclick = async () => {
+    const key = document.getElementById('pro-key-input').value.trim();
+    const errEl = document.getElementById('pro-err');
+    errEl.textContent = '';
+    const res = await fetch('/api/license/activate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      license = data.license;
+      keyAudio.celebrate();
+      updateLicenseUI();
+      showToast(`🎉 恭喜！已永久激活 ${license.tierLabel}！`);
+    } else {
+      errEl.textContent = data.error || '激活失败，请检查激活码';
+    }
+  };
+
+  document.getElementById('btn-toggle-autostart').onclick = async () => {
+    const res = await fetch('/api/autostart', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: !autostartEnabled }),
+    });
+    const data = await res.json();
+    if (data.ok) {
+      autostartEnabled = Boolean(data.autostart);
+      updateLicenseUI();
+      keyAudio.click(true);
+      showToast(autostartEnabled ? '🚀 已开启 Windows 开机静默自启！' : '⏸️ 已关闭开机自启');
+    } else {
+      showToast(`❌ ${data.error || '设置失败'}`);
+    }
+  };
+
   // Hardware Volume Fader Slider & Mute Button!
   const fader = document.getElementById('vol-fader');
   let faderThrottle = 0;
@@ -391,7 +610,7 @@ function setupTabsAndActions(boot) {
     if (data.ok) {
       macros = data.macros;
       renderMacros();
-      showToast('🔄 已重置为 15 键标准布局');
+      showToast('🔄 已恢复当前面板默认 15 键布局');
     }
   };
 
@@ -437,6 +656,15 @@ function setupTabsAndActions(boot) {
   };
 
   const modal = document.getElementById('macro-modal');
+  const mType = document.getElementById('m-type');
+  const mVal = document.getElementById('m-val');
+  mType.onchange = () => {
+    if (mType.value === 'hotkey') mVal.value = 'ctrl+b';
+    else if (mType.value === 'open_url') mVal.value = 'https://www.bilibili.com';
+    else if (mType.value === 'sendkeys') mVal.value = '^c';
+    else mVal.value = '';
+  };
+
   document.getElementById('btn-add-macro').onclick = () => modal.classList.remove('hidden');
   document.getElementById('m-cancel').onclick = () => modal.classList.add('hidden');
   document.getElementById('m-save').onclick = async () => {
@@ -444,8 +672,8 @@ function setupTabsAndActions(boot) {
       icon: document.getElementById('m-icon').value || '⚡',
       label: document.getElementById('m-label').value || '自定义指令',
       color: document.getElementById('m-color').value,
-      actionType: document.getElementById('m-type').value,
-      value: document.getElementById('m-val').value,
+      actionType: mType.value,
+      value: mVal.value,
     };
     const res = await fetch('/api/macros', {
       method: 'POST',
@@ -459,6 +687,11 @@ function setupTabsAndActions(boot) {
       modal.classList.add('hidden');
       keyAudio.click(true);
       showToast('✨ 新按键已挂载到宏键盘！');
+    } else if (data.code === 'PRO_REQUIRED') {
+      modal.classList.add('hidden');
+      openProModal(data.error);
+    } else {
+      showToast(`❌ ${data.error || '保存失败'}`);
     }
   };
 
@@ -587,9 +820,18 @@ async function init() {
 
   document.getElementById('cockpit').classList.remove('hidden');
   macros = boot.macros || [];
+  profiles = boot.profiles || [];
+  activeProfile = boot.activeProfile || 'standard';
+  themes = boot.themes || [];
+  activeTheme = boot.activeTheme || 'cyber_blue';
+  license = boot.license || license;
+  autostartEnabled = Boolean(boot.autostart);
+
   const logs = boot.logs || [];
   if (boot.telemetry?.audio) audioState = boot.telemetry.audio;
 
+  applyTheme(activeTheme);
+  updateLicenseUI();
   renderMacros();
   renderTelemetry(boot.telemetry);
   renderDrops(boot.drops || []);
@@ -603,6 +845,25 @@ async function init() {
   es.addEventListener('macros', (e) => {
     macros = JSON.parse(e.data);
     renderMacros();
+  });
+  es.addEventListener('profile', (e) => {
+    const p = JSON.parse(e.data);
+    activeProfile = p.activeProfile;
+    macros = p.macros;
+    renderProfiles();
+    renderMacros();
+  });
+  es.addEventListener('theme', (e) => {
+    const t = JSON.parse(e.data);
+    applyTheme(t.activeTheme);
+  });
+  es.addEventListener('license', (e) => {
+    license = JSON.parse(e.data);
+    updateLicenseUI();
+  });
+  es.addEventListener('autostart', (e) => {
+    autostartEnabled = Boolean(JSON.parse(e.data).autostart);
+    updateLicenseUI();
   });
   es.addEventListener('log', (e) => {
     logs.unshift(JSON.parse(e.data));

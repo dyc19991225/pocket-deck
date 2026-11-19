@@ -1,18 +1,21 @@
 {
   "name": "pocket-deck",
-  "version": "2.0.0",
-  "description": "Zero-dependency wireless Stream Deck macro pad, live PC hardware telemetry monitor, couch trackpad & LAN AirDrop hub for any phone or tablet.",
+  "version": "2.5.0",
+  "description": "Zero-dependency wireless Stream Deck macro pad, Jianying/PR/OBS Pro presets, live PC hardware telemetry monitor, couch trackpad & LAN AirDrop hub.",
   "type": "module",
   "bin": {
     "pocket-deck": "./bin/pocket-deck.mjs"
   },
   "scripts": {
     "start": "node bin/pocket-deck.mjs",
-    "test": "node --test test/pocket-deck.test.mjs"
+    "test": "node --test test/pocket-deck.test.mjs",
+    "keygen": "node bin/keygen.mjs generate --count 50",
+    "pack:win": "node scripts/pack-portable.mjs"
   },
   "keywords": [
     "stream-deck",
     "macro-pad",
+    "jianying",
     "second-screen",
     "dashboard",
     "system-monitor",
